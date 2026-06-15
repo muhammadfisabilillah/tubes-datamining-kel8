@@ -1,0 +1,177 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import joblib
+import os
+import plotly.express as px
+
+# Menentukan direktori utama
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 1. Konfigurasi Halaman & Tema Web
+st.set_page_config(
+    page_title="Dashboard ISPU Surabaya", 
+    page_icon="🌬️", 
+    layout="wide"
+)
+
+# Load Model
+@st.cache_resource
+def load_model():
+    model_path = os.path.join(BASE_DIR, 'model_ispu_dt.pkl')
+    return joblib.load(model_path)
+
+try:
+    model = load_model()
+except FileNotFoundError:
+    st.error(f"❌ File 'model_ispu_dt.pkl' tidak ditemukan di folder lokal.")
+    st.stop()
+
+# ==================== HEADER UTAMA ====================
+st.title("🌬️ Sistem Prediksi & Visualisasi ISPU Kota Surabaya")
+st.markdown("Gunakan panel sebelah kiri untuk menggeser nilai polutan dan melihat bagaimana sistem mengakumulasikan kualitas udara.")
+st.markdown("---")
+
+# ==================== SIDEBAR INPUT PARAMETER ====================
+st.sidebar.header("🛠️ Input Nilai Parameter")
+st.sidebar.write("Geser nilai di bawah ini untuk mensimulasikan kondisi udara:")
+
+pm10 = st.sidebar.slider("PM10 (Partikel Debu <10µm)", 0.0, 500.0, 50.0, 1.0)
+pm2_5 = st.sidebar.slider("PM2.5 (Partikel Debu Halus)", 0.0, 500.0, 35.0, 1.0)
+co = st.sidebar.slider("Carbon Monoxide (CO)", 0.0, 5000.0, 900.0, 50.0)
+no2 = st.sidebar.slider("Nitrogen Dioxide (NO2)", 0.0, 300.0, 30.0, 1.0)
+so2 = st.sidebar.slider("Sulphur Dioxide (SO2)", 0.0, 300.0, 25.0, 1.0)
+
+# ==================== PROSES AKUMULASI PARAMETER DOMINAN ====================
+# Menyusun kamus data untuk mendeteksi polutan tertinggi
+dict_polutan = {
+    "PM10 (Partikel Debu)": pm10,
+    "PM2.5 (Debu Halus)": pm2_5,
+    "Carbon Monoxide (CO)": co / 10,  # Skala disesuaikan agar visualisasi grafik seimbang
+    "Nitrogen Dioxide (NO2)": no2,
+    "Sulphur Dioxide (SO2)": so2
+}
+
+# Mencari nilai tertinggi dan nama polutan yang paling dominan
+polutan_dominan = max(dict_polutan, key=dict_polutan.get)
+nilai_tertinggi = max(dict_polutan.values())
+
+# ==================== LIVE PREDICTION & AKUMULASI BOX ====================
+input_features = np.array([[pm10, pm2_5, co, no2, so2]])
+prediction = model.predict(input_features)[0]
+
+st.subheader("📊 Hasil Akumulasi & Analisis AI")
+
+# Membuat 2 kolom untuk memisahkan Hasil Kategori dan Siapa Biang Keroknya
+col_res1, col_res2 = st.columns(2)
+
+with col_res1:
+    if prediction == 'Tidak Sehat':
+        st.error(f"### Kategori Akhir: **{prediction.upper()}**")
+        st.markdown("🚨 **Status:** Udara kurang aman. Kelompok sensitif (anak-anak/lansia) disarankan memakai masker.")
+    elif prediction == 'Sedang':
+        st.warning(f"### Kategori Akhir: **{prediction.upper()}**")
+        st.markdown("😐 **Status:** Udara lumayan bersih, aman digunakan aktivitas normal di luar ruangan.")
+    else:
+        st.success(f"### Kategori Akhir: **{prediction.upper()}**")
+        st.markdown("🍃 **Status:** Udara sangat bersih dan sehat! Bagus untuk paru-paru.")
+
+with col_res2:
+    # Menjelaskan asal muasal akumulasi prediksi kepada orang awam
+    st.info(f"### 🎯 Parameter Dominan: \n**{polutan_dominan}**")
+    st.markdown(f"Sistem menyimpulkan status udara berdasarkan kadar tertinggi polutan saat ini, yaitu sebesar **{nilai_tertinggi:.1f}** unit.")
+
+st.markdown("---")
+
+# ==================== GRAFIK SIMULASI LIVE YANG SEDANG DIINPUT ====================
+st.subheader("📉 Grafik Perbandingan Live Polutan Yang Anda Masukkan")
+st.markdown("Grafik di bawah ini mempermudah orang awam melihat polutan mana yang paling tinggi (paling menonjol) saat Anda menggeser sidebar:")
+
+# Membuat data frame mini untuk chart simulasi live
+df_live = pd.DataFrame({
+    'Nama Polutan': list(dict_polutan.keys()),
+    'Tingkat Konsentrasi': list(dict_polutan.values())
+})
+
+fig_live = px.bar(
+    df_live, 
+    x='Nama Polutan', 
+    y='Tingkat Konsentrasi',
+    color='Tingkat Konsentrasi',
+    color_continuous_scale=px.colors.sequential.Reds,
+    text_auto='.1f'
+)
+fig_live.update_layout(xaxis_title="", yaxis_title="Skala Konsentrasi Udara", showlegend=False)
+st.plotly_chart(fig_live, use_container_width=True)
+
+st.markdown("---")
+
+# ==================== PANDUAN ACUAN RENTANG NILAI ISPU RESMI (KLHK) ====================
+st.subheader("📚 Panduan Standar Nilai Kualitas Udara Resmi (Kementerian LHK)")
+
+col_p1, col_p2, col_p3 = st.columns(3)
+with col_p1:
+    st.markdown("""
+    <div style="background-color:#d4edda; padding:18px; border-radius:10px; border-left:8px solid #28a745; min-height:140px;">
+        <h4 style="color:#155724; margin:0;">🟢 SEHAT / BAIK (0 - 50)</h4>
+        <p style="color:#155724; font-size:14px; margin-top:8px;">
+        Sangat ideal. Tidak memberikan efek buruk bagi kesehatan manusia, hewan, ataupun tumbuhan.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_p2:
+    st.markdown("""
+    <div style="background-color:#fff3cd; padding:18px; border-radius:10px; border-left:8px solid #ffc107; min-height:140px;">
+        <h4 style="color:#856404; margin:0;">🟡 SEDANG (51 - 100)</h4>
+        <p style="color:#856404; font-size:14px; margin-top:8px;">
+        Kualitas udara masih dapat diterima bagi manusia sehat, namun mulai berdampak pada tumbuhan sensitif.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_p3:
+    st.markdown("""
+    <div style="background-color:#f8d7da; padding:18px; border-radius:10px; border-left:8px solid #dc3545; min-height:140px;">
+        <h4 style="color:#721c24; margin:0;">🔴 TIDAK SEHAT (101 - 200)</h4>
+        <p style="color:#721c24; font-size:14px; margin-top:8px;">
+        Mulai merugikan kesehatan. Bisa memicu gangguan pernapasan bagi kelompok masyarakat rentan.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ==================== GRAPH SECTION (HISTORIS DATASET) ====================
+st.subheader("📊 Eksplorasi & Proporsi Data Historis")
+
+try:
+    dataset_path = os.path.join(BASE_DIR, 'dataset_ispu_surabaya_clean.csv')
+    df = pd.read_csv(dataset_path)
+    
+    col_grafik1, col_grafik2 = st.columns(2)
+    
+    with col_grafik1:
+        st.write("**Persentase Proporsi Kategori dalam Dataset:**")
+        df_counts = df['kategori_ispu'].value_counts().reset_index()
+        df_counts.columns = ['Kategori', 'Jumlah']
+        
+        fig_pie = px.pie(
+            df_counts, 
+            values='Jumlah', 
+            names='Kategori', 
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Safe
+        )
+        fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20))
+        st.plotly_chart(fig_pie, use_container_width=True)
+        
+    with col_grafik2:
+        st.write("**Tren Naik-Turun Konsentrasi Polutan Surabaya (Historis):**")
+        df_trend = df[['pm10', 'pm2_5', 'sulphur_dioxide', 'nitrogen_dioxide']].head(50)
+        df_trend.columns = ['PM10', 'PM2.5', 'SO2', 'NO2']
+        
+        st.line_chart(df_trend)
+        
+except FileNotFoundError:
+    st.info("Dataset 'dataset_ispu_surabaya_clean.csv' tidak ditemukan untuk memuat komponen grafik.")
